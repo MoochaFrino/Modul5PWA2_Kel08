@@ -37,18 +37,23 @@ export default function FavoritesPage({ onSelectGun, onNavigateCatalog }) {
 
   // Resolve favorited products
   const favoriteItems = useMemo(() => {
-    // 1. If backend returned full objects in favorites array:
     const resolved = []
     const seen = new Set()
 
     favorites.forEach((fav) => {
-      const id = fav.id || fav.recipe_id || fav.gun_id
-      const match = allKnownGuns.get(id) || allKnownGuns.get(fav.name) || (fav.name ? fav : null)
+      // PERBAIKAN: Mendukung format ID string dari localStorage dan format objek dari API server
+      const id = typeof fav === 'object' && fav !== null
+        ? (fav.id || fav.recipe_id || fav.gun_id || fav.product_id)
+        : fav
+
+      const match = allKnownGuns.get(id) || (fav.name && allKnownGuns.get(fav.name)) || (fav.name ? fav : null)
+      
       if (match && !seen.has(match.id || match.name)) {
         seen.add(match.id || match.name)
         resolved.push(match)
       } else if (id && !seen.has(id)) {
         seen.add(id)
+        // Fallback jika item tidak ditemukan di allKnownGuns
         resolved.push({
           id,
           name: fav.name || 'Hardware item',
