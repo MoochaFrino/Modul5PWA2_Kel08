@@ -34,7 +34,8 @@ export function useGuns(params = {}) {
         setError(response.message || 'Failed to fetch products.')
       }
     } catch (err) {
-      setError(err.message || 'An error occurred while fetching products.')
+      const pesanEror = typeof err.message === 'string' ? err.message : 'An error occurred while fetching products.';
+      setError(pesanEror)
       setGuns([])
     } finally {
       setLoading(false)

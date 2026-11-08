@@ -1,172 +1,119 @@
-import { useState } from 'react'
-import { Shield, Copy, Check, Save, Heart, FileText, Camera, Play, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Shield, FileText, Settings, Archive } from 'lucide-react'
 import userService from '../services/userService'
-import { useFavorites } from '../hooks/useFavorites'
-import { clearAllDrafts } from '../utils/draftStorage'
+import gunService from '../services/gunService'
+import { getAllDraftIds, loadDraft } from '../utils/draftStorage'
+import GunCard from '../components/gun/GunCard'
 
-const getActiveDraftCount = () => {
-  try {
-    let count = 0
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && (key.startsWith('gun_draft_') || key.startsWith('recipe_draft_'))) {
-        count++
-      }
-    }
-    return count
-  } catch {
-    return 0
-  }
-}
-
-export default function ProfilePage({ onReplaySplash }) {
+export default function ProfilePage({ onSelectGun }) {
   const [profile, setProfile] = useState(() => userService.getUserProfile())
-  const [username, setUsername] = useState(profile.username || 'Shooter')
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [drafts, setDrafts] = useState([])
+  const [archivedGuns, setArchivedGuns] = useState([])
+  
+  const [username, setUsername] = useState(profile.username || '')
   const [bio, setBio] = useState(profile.bio || '')
-  const [avatar, setAvatar] = useState(profile.avatar || null)
-  const [copied, setCopied] = useState(false)
-  const [feedback, setFeedback] = useState('')
-  const { favorites } = useFavorites()
-  const [draftCount, setDraftCount] = useState(getActiveDraftCount)
+  
+  useEffect(() => {
+    const draftIds = getAllDraftIds();
+    const loadedDrafts = draftIds.map(id => ({ draftId: id, data: loadDraft(id) })).filter(d => d.data);
+    setDrafts(loadedDrafts);
 
-  const handleCopyId = () => {
-    if (profile.userId) {
-      navigator.clipboard.writeText(profile.userId)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
-
-  const handleAvatarChange = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    if (file.size > 2 * 1024 * 1024) {
-      setFeedback('Avatar image must be under 2MB.')
-      setTimeout(() => setFeedback(''), 3000)
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      const base64 = event.target.result
-      setAvatar(base64)
-      userService.updateAvatar(base64)
-      setFeedback('Avatar updated.')
-      setTimeout(() => setFeedback(''), 3000)
-    }
-    reader.readAsDataURL(file)
-  }
+    gunService.getArchivedGuns().then(res => {
+      if(res.success) setArchivedGuns(res.data);
+    }).catch(console.error);
+  }, []);
 
   const handleSaveProfile = (e) => {
     e.preventDefault()
-    const updated = {
-      ...profile,
-      username: username.trim() || 'Shooter',
-      bio: bio.trim(),
-      avatar,
-    }
-    const result = userService.saveUserProfile(updated)
+    const result = userService.saveUserProfile({ ...profile, username: username.trim(), bio: bio.trim() })
     if (result.success) {
-      setProfile(result.data)
-      setFeedback('Profile successfully updated.')
-      setTimeout(() => setFeedback(''), 3000)
-    } else {
-      setFeedback('Failed to save profile.')
+      setProfile(result.data);
+      setIsEditModalOpen(false);
     }
   }
 
-  const handleClearDrafts = () => {
-    if (window.confirm('Tindakan ini akan menghapus semua draf lokal yang belum disimpan ke server. Lanjutkan?')) {
-      clearAllDrafts()
-      setDraftCount(0)
-      setFeedback('Semua draf offline berhasil dibersihkan.')
-      setTimeout(() => setFeedback(''), 3000)
+  const handleRestore = async (gun) => {
+    await gunService.restoreGun(gun.id);
+    setArchivedGuns(prev => prev.filter(g => g.id !== gun.id));
+  }
+
+  const handleHardDelete = async (gun) => {
+    if(window.confirm(`Hapus PERMANEN ${gun.name} dari server?`)) {
+      await gunService.hardDeleteGun(gun.id);
+      setArchivedGuns(prev => prev.filter(g => g.id !== gun.id));
     }
   }
 
   return (
     <div className="profile-page">
-      <section className="masthead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 className="display">Operator Profile</h1>
-          <p className="lede">
-            Operator credentials, procurement statistics, and armorer details.
-          </p>
-        </div>
-        {onReplaySplash && (
-          <button type="button" className="btn btn--outline btn--sm" onClick={onReplaySplash} title="Replay introductory splash animation">
-            <Play size={14} /> Replay Intro
-          </button>
-        )}
+      <section className="masthead">
+        <h1 className="display">Operator Profile</h1>
       </section>
-
-      {feedback && (
-        <div className="toast toast--success">
-          <Check size={18} /> {feedback}
-        </div>
-      )}
 
       <div className="profile-card">
         <div className="profile-card-top">
-          <div className="avatar-wrap">
-            {avatar ? (
-              <img src={avatar} alt={profile.username} className="avatar-img" />
-            ) : (
-              <div className="avatar-placeholder">
-                <Shield size={36} stroke="var(--brass)" />
-              </div>
-            )}
-            <label htmlFor="avatar-file-input" className="avatar-upload-btn" title="Upload avatar">
-              <Camera size={14} />
-              <input id="avatar-file-input" type="file" accept="image/*" onChange={handleAvatarChange} className="hidden-file-input" />
-            </label>
-          </div>
+          <div className="avatar-placeholder"><Shield size={36} stroke="var(--brass)" /></div>
           <div className="profile-identity">
             <h2 className="display">{profile.username || 'Shooter'}</h2>
-            <div className="profile-id-row">
-              <span className="mono-badge">{profile.userId}</span>
-              <button type="button" className="icon-btn" onClick={handleCopyId} title="Copy User ID to clipboard">
-                {copied ? <Check size={14} color="var(--brass)" /> : <Copy size={14} />}
-              </button>
-            </div>
+            <p className="type">{profile.bio || 'Tidak ada deskripsi bio.'}</p>
           </div>
-        </div>
-        
-        <div className="profile-stats">
-          <div className="stat-item">
-            <Heart size={20} className="stat-icon" stroke="var(--brass)" />
-            <div className="stat-val">{favorites.length}</div>
-            <div className="stat-label">Procurement Favorites</div>
-          </div>
-          <div className="stat-item">
-            <FileText size={20} className="stat-icon" stroke="var(--steel)" />
-            <div className="stat-val">{draftCount}</div>
-            <div className="stat-label">Saved Offline Drafts</div>
-          </div>
+          <button className="btn btn--outline" style={{ marginLeft: 'auto' }} onClick={() => setIsEditModalOpen(true)}>
+            <Settings size={16} /> Edit Profile
+          </button>
         </div>
       </div>
 
-      <form onSubmit={handleSaveProfile} className="profile-form">
-        <h3 className="section-title">Armorer Details</h3>
-        <div className="form-group">
-          <label htmlFor="prof-name" className="form-label">Callsign / Operator Alias</label>
-          <input id="prof-name" type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="form-input" />
+      <div className="form-grid">
+        <div className="card-box">
+          <h3>Tentang Bore & Barrel</h3>
+          <p className="type">Aplikasi PWA penyedia informasi persenjataan dan logistik, dirancang untuk operasional offline dan performa tinggi.</p>
         </div>
-        <div className="form-group">
-          <label htmlFor="prof-bio" className="form-label">Armory Notes / Station Bio</label>
-          <textarea id="prof-bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={3} className="form-textarea" />
+        <div className="card-box">
+          <h3>Hubungi Kami</h3>
+          <p className="type">123 Range Road. Selasa - Sabtu (10:00 - 18:00).<br/>Call: (555) 010-0100</p>
         </div>
-        
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '10px' }}>
-          <button type="submit" className="btn btn--primary">
-            <Save size={16} /> Save Armorer Profile
-          </button>
-          {draftCount > 0 && (
-            <button type="button" className="btn btn--danger-ghost" onClick={handleClearDrafts} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Trash2 size={16} /> Bersihkan Draf Offline
-            </button>
-          )}
+      </div>
+
+      <div className="card-box">
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><FileText size={20}/> Dokumen Draf (Offline)</h3>
+        {drafts.length === 0 ? <p className="type">Tidak ada draf tersimpan.</p> : (
+          <ul style={{ paddingLeft: '20px' }}>
+            {drafts.map((d, i) => (
+               <li key={i} className="type">
+                 Draf <b>{d.data.formData?.name || 'Item Baru'}</b> (ID: {d.draftId}) - Disimpan pada {new Date(d.data.savedAt).toLocaleString()}
+               </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card-box" style={{ padding: '0', background: 'transparent', border: 'none' }}>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Archive size={20}/> Gudang Arsip (Soft Delete)</h3>
+        {archivedGuns.length === 0 ? <p className="type">Gudang arsip kosong.</p> : (
+          <ul className="stock">
+            {archivedGuns.map((gun) => (
+              <GunCard key={gun.id} gun={gun} isArchiveMode={true} onSelect={onSelectGun} onRestore={handleRestore} onDelete={handleHardDelete} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {isEditModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsEditModalOpen(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}>
+            <h3>Edit Profil Operator</h3>
+            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input type="text" className="form-input" placeholder="Callsign" value={username} onChange={e => setUsername(e.target.value)} required />
+              <textarea className="form-textarea" placeholder="Bio Catatan" rows="3" value={bio} onChange={e => setBio(e.target.value)} />
+              <div className="modal-actions">
+                <button type="button" className="btn btn--outline" onClick={() => setIsEditModalOpen(false)}>Batal</button>
+                <button type="submit" className="btn btn--primary">Simpan</button>
+              </div>
+            </form>
+          </div>
         </div>
-      </form>
+      )}
     </div>
   )
 }

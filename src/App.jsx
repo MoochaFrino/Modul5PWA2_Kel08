@@ -1,4 +1,4 @@
-import { useState, Suspense, lazy } from 'react'
+import { useState, Suspense, lazy, useEffect } from 'react'
 import Header from './components/Header.jsx'
 import Footer from './components/Footer.jsx'
 import PWABadge from './components/PWABadge.jsx'
@@ -14,8 +14,6 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage.jsx'))
 const CreateGunPage = lazy(() => import('./pages/CreateGunPage.jsx'))
 const EditGunPage = lazy(() => import('./pages/EditGunPage.jsx'))
 const GunDetail = lazy(() => import('./components/gun/GunDetail.jsx'))
-const About = lazy(() => import('./pages/About.jsx'))
-const Contact = lazy(() => import('./pages/Contact.jsx'))
 
 function App() {
   const [showSplash, setShowSplash] = useState(true)
@@ -26,61 +24,52 @@ function App() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gunId = params.get('gunId');
+    if (gunId) {
+      setShowSplash(false);
+      gunService.getGunById(gunId).then(res => {
+        if (res.success) {
+          setSelectedGun(res.data);
+          setMode('detail');
+        }
+      }).catch(console.error);
+    }
+  }, []);
+
   const handleNavigate = (target, payload) => {
     if (target === 'Create') {
-      setMode('create')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setMode('create'); window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if (target === 'Edit') {
-      setEditingGun(payload)
-      setMode('edit')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setEditingGun(payload); setMode('edit'); window.scrollTo({ top: 0, behavior: 'smooth' });
     } else if (target === 'Detail') {
-      setSelectedGun(payload)
-      setMode('detail')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setSelectedGun(payload); setMode('detail'); window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
-      setTab(target)
-      setMode('list')
-      setSelectedGun(null)
-      setEditingGun(null)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setTab(target); setMode('list'); setSelectedGun(null); setEditingGun(null); window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.history.pushState({}, '', window.location.pathname);
     }
   }
 
   const handleBackToList = () => {
-    setMode('list')
-    setSelectedGun(null)
-    setEditingGun(null)
+    setMode('list'); setSelectedGun(null); setEditingGun(null);
+    window.history.pushState({}, '', window.location.pathname);
   }
 
   return (
     <div className="shell">
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
-      
-      <Header
-        tab={mode === 'list' ? tab : ''}
-        onTab={(newTab) => handleNavigate(newTab)}
-        onNavigateCreate={() => handleNavigate('Create')}
-      />
-      
+      <Header tab={mode === 'list' ? tab : ''} onTab={(newTab) => handleNavigate(newTab)} onNavigateCreate={() => handleNavigate('Create')} />
       <main className="main">
         <Suspense fallback={<div className="state-box"><Loader className="spin" size={28} /><p>Memuat antarmuka...</p></div>}>
-          {mode === 'create' && (
-            <CreateGunPage onBack={handleBackToList} onSuccess={() => { handleBackToList(); setTab('Catalog') }} />
-          )}
-          {mode === 'edit' && (
-            <EditGunPage gun={editingGun} gunId={editingGun?.id} onBack={handleBackToList} onSuccess={() => { handleBackToList(); setTab('Catalog') }} />
-          )}
-          {mode === 'detail' && selectedGun && (
-            <GunDetail gun={selectedGun} onBack={handleBackToList} onEdit={(g) => handleNavigate('Edit', g)} onDelete={(g) => setDeleteTarget(g)} />
-          )}
+          {mode === 'create' && <CreateGunPage onBack={handleBackToList} onSuccess={() => { handleBackToList(); setTab('Catalog') }} />}
+          {mode === 'edit' && <EditGunPage gun={editingGun} gunId={editingGun?.id} onBack={handleBackToList} onSuccess={() => { handleBackToList(); setTab('Catalog') }} />}
+          {mode === 'detail' && selectedGun && <GunDetail gun={selectedGun} onBack={handleBackToList} onEdit={(g) => handleNavigate('Edit', g)} onDelete={(g) => setDeleteTarget(g)} />}
           {mode === 'list' && (
             <>
               {tab === 'Catalog' && <Catalog onNavigate={(destination, payload) => handleNavigate(destination, payload)} />}
               {tab === 'Favorites' && <FavoritesPage onSelectGun={(g) => handleNavigate('Detail', g)} onNavigateCatalog={() => setTab('Catalog')} />}
-              {tab === 'Profile' && <ProfilePage onReplaySplash={() => setShowSplash(true)} />}
-              {tab === 'About' && <About />}
-              {tab === 'Contact' && <Contact />}
+              {tab === 'Profile' && <ProfilePage onReplaySplash={() => setShowSplash(true)} onSelectGun={(g) => handleNavigate('Detail', g)} />}
             </>
           )}
         </Suspense>
@@ -88,21 +77,21 @@ function App() {
 
       <ConfirmModal
         open={Boolean(deleteTarget)}
-        title="Delete Hardware Record"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
+        title="Konfirmasi Hapus Permanen"
+        message={`Data "${deleteTarget?.name}" akan dihapus permanen dari server. Tindakan ini tidak bisa dibatalkan.`}
+        confirmLabel="Hapus Permanen"
         danger
         loading={deleting}
         onConfirm={async () => {
           if (!deleteTarget) return
           try {
             setDeleting(true)
-            await gunService.deleteGun(deleteTarget.id)
+            await gunService.hardDeleteGun(deleteTarget.id)
             setDeleteTarget(null)
             handleBackToList()
             setTab('Catalog')
           } catch (err) {
-            alert(err.message || 'Failed to delete record.')
+            alert(err.message || 'Gagal menghapus data.')
           } finally {
             setDeleting(false)
           }
