@@ -1,5 +1,24 @@
 import { apiClient, IS_SUPABASE } from '../config/api'
 
+// --- HELPER SOFT DELETE CLIENT-SIDE ---
+const getArchivedIds = () => {
+  try {
+    const raw = localStorage.getItem('archived_hardware');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const archiveId = (id) => {
+  const archived = getArchivedIds();
+  if (!archived.includes(id)) {
+    archived.push(id);
+    localStorage.setItem('archived_hardware', JSON.stringify(archived));
+  }
+};
+// --------------------------------------
+
 export const normalizeProduct = (item) => {
   if (!item) return null
   let specsList = []
@@ -39,7 +58,7 @@ export const normalizeProduct = (item) => {
 class GunService {
   async getGuns(params = {}) {
     if (IS_SUPABASE) {
-      const queryParts = ['select=*', 'is_archived=eq.false']
+      const queryParts = ['select=*']
       
       if (params.search) queryParts.push(`name=ilike.*${encodeURIComponent(params.search)}*`)
       if (params.category && params.category !== 'All') queryParts.push(`type=eq.${encodeURIComponent(params.category)}`)
@@ -54,7 +73,12 @@ class GunService {
       
       const queryString = queryParts.join('&')
       const data = await apiClient.get(`/rest/v1/products?${queryString}`)
-      const list = Array.isArray(data) ? data.map(normalizeProduct) : []
+      let list = Array.isArray(data) ? data.map(normalizeProduct) : []
+      
+      // IMPLEMENTASI SOFT DELETE: Memfilter data yang ID-nya sudah diarsipkan
+      const archivedIds = getArchivedIds();
+      list = list.filter(item => !archivedIds.includes(item.id));
+
       return {
         success: true,
         data: list,
@@ -85,8 +109,7 @@ class GunService {
         price: Number(data.price ?? data.cook_time ?? 0),
         description: data.description || '',
         specs: specsArray,
-        image_url: data.image_url || null,
-        is_archived: false
+        image_url: data.image_url || null
       }
       const res = await apiClient.post('/rest/v1/products', payload, { headers: { Prefer: 'return=representation' } })
       return { success: true, data: normalizeProduct(Array.isArray(res) ? res[0] : res) }
@@ -115,7 +138,8 @@ class GunService {
 
   async deleteGun(id) {
     if (IS_SUPABASE) {
-      await apiClient.patch(`/rest/v1/products?id=eq.${id}`, { is_archived: true }, { headers: { Prefer: 'return=minimal' } })
+      // IMPLEMENTASI SOFT DELETE: Mengarsipkan ID secara lokal alih-alih menghapus dari database
+      archiveId(id);
       return { success: true }
     }
     return apiClient.delete(`/api/v1/recipes/${id}`)
