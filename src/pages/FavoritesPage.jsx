@@ -1,140 +1,69 @@
-import { useMemo } from 'react'
-import { Heart, Loader, AlertCircle, ArrowRight } from 'lucide-react'
-import { useFavorites } from '../hooks/useFavorites'
+import { useMemo, useEffect } from 'react'
+import { Heart, Loader } from 'lucide-react'
+import { useFavorites, pruneFavoritesAgainstValidIds } from '../hooks/useFavorites'
 import { useGuns } from '../hooks/useGuns'
+import { getArchivedIds, getPermanentlyDeletedIds } from '../services/gunService'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
 
-/**
- * FavoritesPage — Displays user's shortlisted / favorited weapons.
- * Supports dual-mode (server API + localStorage fallback).
- */
 export default function FavoritesPage({ onSelectGun, onNavigateCatalog }) {
-  const { favorites, loading: favLoading, error: favError, refetch } = useFavorites()
-  const { guns: apiGuns } = useGuns({ limit: 100 })
+  const { favorites } = useFavorites()
+  const { guns: apiGuns, loading } = useGuns({ limit: 50 })
 
-  // All known guns catalog for fallback item lookup
-  const allKnownGuns = useMemo(() => {
-    const map = new Map()
-    // Local catalog
-    GUNS_LOCAL.forEach((g, idx) => {
-      const id = g.id || `local-${idx}`
-      const enriched = { ...g, id }
-      map.set(id, enriched)
-      map.set(String(id), enriched)
-      if (g.name) map.set(g.name, enriched)
-    })
-    // API catalog
-    apiGuns.forEach((g) => {
-      if (g.id !== undefined && g.id !== null) {
-        map.set(g.id, g)
-        map.set(String(g.id), g)
-      }
-      if (g.name) map.set(g.name, g)
-    })
-    return map
+  const activeCatalog = useMemo(() => {
+    const archivedIds = getArchivedIds()
+    const deletedIds = getPermanentlyDeletedIds()
+    const source =
+      apiGuns && apiGuns.length > 0
+        ? apiGuns
+        : GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
+
+    return source.filter(
+      (g) => !archivedIds.includes(String(g.id)) && !deletedIds.includes(String(g.id))
+    )
   }, [apiGuns])
 
-  // Resolve favorited products
-  const favoriteItems = useMemo(() => {
-    const resolved = []
-    const seen = new Set()
+  // Begitu halaman Favorites selesai memuat katalog, pangkas semua ID favorit hantu/terhapus
+  useEffect(() => {
+    if (!loading && activeCatalog.length > 0) {
+      pruneFavoritesAgainstValidIds(activeCatalog.map((g) => g.id))
+    }
+  }, [loading, activeCatalog])
 
-    favorites.forEach((fav) => {
-      // PERBAIKAN: Mendukung format ID string dari localStorage dan format objek dari API server
-      const id = typeof fav === 'object' && fav !== null
-        ? (fav.id || fav.recipe_id || fav.gun_id || fav.product_id)
-        : fav
-
-      const match = allKnownGuns.get(id) || (fav.name && allKnownGuns.get(fav.name)) || (fav.name ? fav : null)
-      
-      if (match && !seen.has(match.id || match.name)) {
-        seen.add(match.id || match.name)
-        resolved.push(match)
-      } else if (id && !seen.has(id)) {
-        seen.add(id)
-        // Fallback jika item tidak ditemukan di allKnownGuns
-        resolved.push({
-          id,
-          name: fav.name || 'Hardware item',
-          type: fav.category || 'Hardware',
-          image_url: fav.image_url || '/guns/pistol.svg',
-          price: fav.cook_time || 0,
-        })
-      }
-    })
-
-    return resolved
-  }, [favorites, allKnownGuns])
-
-  const isLoading = favLoading && favoriteItems.length === 0
+  const favoriteGuns = useMemo(() => {
+    const favSet = new Set(favorites.map(String))
+    return activeCatalog.filter((g) => favSet.has(String(g.id)))
+  }, [activeCatalog, favorites])
 
   return (
-    <div className="fav-page">
+    <div className="favorites-page">
       <section className="masthead">
-        <h1 className="display">Saved Shortlist</h1>
-        <p className="lede">
-          Weapons and equipment marked for procurement. Persisted with your armory profile.
-        </p>
+        <h1 className="display">Saved Hardware</h1>
+        <p className="lede">Daftar persenjataan yang kamu tandai sebagai favorit.</p>
       </section>
 
-      <section className="fav-content">
-        <div className="list-head">
-          <h2>Armory Favorites</h2>
-          <span className="count">
-            {favoriteItems.length} weapon{favoriteItems.length !== 1 ? 's' : ''} saved
-          </span>
+      {loading ? (
+        <div className="state-box">
+          <Loader size={28} className="spin" />
+          <p>Memeriksa daftar favorit...</p>
         </div>
-
-        {isLoading && (
-          <div className="state-box">
-            <Loader size={28} className="spin" />
-            <p>Loading your shortlist…</p>
-          </div>
-        )}
-
-        {!isLoading && favError && favoriteItems.length === 0 && (
-          <div className="state-box state-box--error">
-            <AlertCircle size={28} />
-            <p>{favError}</p>
-            <button type="button" className="btn btn--outline" onClick={refetch}>
-              Retry Connection
+      ) : favoriteGuns.length === 0 ? (
+        <div className="state-box">
+          <Heart size={32} stroke="#ef4444" />
+          <p>Belum ada produk favorit yang ditandai.</p>
+          {onNavigateCatalog && (
+            <button type="button" className="btn btn--outline" onClick={onNavigateCatalog}>
+              Jelajahi Katalog
             </button>
-          </div>
-        )}
-
-        {!isLoading && favoriteItems.length === 0 && !favError && (
-          <div className="state-box">
-            <Heart size={36} stroke="var(--steel)" />
-            <h3>No hardware favorited yet</h3>
-            <p className="lede">
-              Explore the armory catalog and click the heart icon on any piece to save it here.
-            </p>
-            {onNavigateCatalog && (
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={onNavigateCatalog}
-                style={{ marginTop: '16px' }}
-              >
-                Browse Catalog <ArrowRight size={16} />
-              </button>
-            )}
-          </div>
-        )}
-
-        {favoriteItems.length > 0 && (
-          <ul className="stock">
-            {favoriteItems.map((gun) => (
-              <GunCard
-                key={gun.id || gun.name}
-                gun={gun}
-                onSelect={onSelectGun}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
+          )}
+        </div>
+      ) : (
+        <ul className="stock">
+          {favoriteGuns.map((gun) => (
+            <GunCard key={gun.id} gun={gun} onSelect={onSelectGun} />
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

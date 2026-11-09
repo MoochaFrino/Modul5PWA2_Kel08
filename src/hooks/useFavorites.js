@@ -1,144 +1,99 @@
 import { useState, useEffect, useCallback } from 'react'
-import favoriteService from '../services/favoriteService'
-import { getUserIdentifier } from '../services/userService'
 
-// ---------------------------------------------------------------------------
-// localStorage fallback — used when the backend is unavailable so that
-// favourites are still fully functional offline.
-// ---------------------------------------------------------------------------
+export const FAV_STORAGE_KEY = 'bore_barrel_favorites_v2'
 
-const LOCAL_KEY = 'bore_barrel_favorites'
-
-const readLocalFavs = () => {
+export const getStoredFavorites = () => {
   try {
-    const raw = localStorage.getItem(LOCAL_KEY)
-    return raw ? JSON.parse(raw) : []
+    const raw = localStorage.getItem(FAV_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed.map(String) : []
   } catch {
     return []
   }
 }
 
-const writeLocalFavs = (ids) => {
+export const saveStoredFavorites = (list) => {
   try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(ids))
-  } catch {
-    /* quota exceeded — silently fail */
+    const cleanList = Array.from(new Set(list.map(String)))
+    localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(cleanList))
+    window.dispatchEvent(new CustomEvent('favorites-updated', { detail: cleanList }))
+  } catch (e) {
+    console.error(e)
   }
 }
 
-// ---------------------------------------------------------------------------
-// useFavorites — list all favourited product IDs.
-//
-// First attempts the server; on failure uses localStorage.
-// ---------------------------------------------------------------------------
+// Hapus paksa ID tertentu dari daftar favorit (dipanggil saat senjata diarsipkan / dihapus)
+export const removeFavoriteFromStorage = (gunId) => {
+  if (gunId == null) return
+  const strId = String(gunId)
+  const current = getStoredFavorites()
+  if (current.includes(strId)) {
+    const updated = current.filter((id) => id !== strId)
+    saveStoredFavorites(updated)
+  }
+}
+
+// Sinkronisasi daftar favorit dengan ID katalog yang benar-benar valid & aktif
+export const pruneFavoritesAgainstValidIds = (validIdsArray) => {
+  if (!Array.isArray(validIdsArray)) return
+  const validSet = new Set(validIdsArray.map(String))
+  const current = getStoredFavorites()
+  const cleaned = current.filter((id) => validSet.has(String(id)))
+
+  // Jika ada ID hantu yang terbuang, perbarui storage & navbar seketika
+  if (cleaned.length !== current.length) {
+    saveStoredFavorites(cleaned)
+  }
+}
 
 export function useFavorites() {
-  const [favorites, setFavorites] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [isLocal, setIsLocal] = useState(false)
-  const userIdentifier = getUserIdentifier()
-
-  const fetchFavorites = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const response = await favoriteService.getFavorites(userIdentifier)
-
-      if (response.success) {
-        setFavorites(response.data || [])
-        setIsLocal(false)
-      } else {
-        throw new Error(response.message)
-      }
-    } catch {
-      // Fallback to localStorage
-      setFavorites(readLocalFavs())
-      setIsLocal(true)
-    } finally {
-      setLoading(false)
-    }
-  }, [userIdentifier])
+  const [favorites, setFavorites] = useState(() => getStoredFavorites())
+  const [loading] = useState(false)
 
   useEffect(() => {
-    fetchFavorites()
-  }, [fetchFavorites])
-
-  return { favorites, loading, error, isLocal, refetch: fetchFavorites }
-}
-
-// ---------------------------------------------------------------------------
-// useToggleFavorite — toggle a product in/out of favourites.
-// ---------------------------------------------------------------------------
-
-export function useToggleFavorite() {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const userIdentifier = getUserIdentifier()
-
-  const toggleFavorite = async (gunId) => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const response = await favoriteService.toggleFavorite({
-        recipe_id: gunId,
-        user_identifier: userIdentifier,
-      })
-
-      if (response.success) {
-        return response.data
-      }
-      throw new Error(response.message)
-    } catch {
-      // Fallback: toggle in localStorage
-      const current = readLocalFavs()
-      const idx = current.findIndex((id) => String(id) === String(gunId))
-      let isFavorited
-
-      if (idx === -1) {
-        current.push(gunId)
-        isFavorited = true
-      } else {
-        current.splice(idx, 1)
-        isFavorited = false
-      }
-      writeLocalFavs(current)
-      return { is_favorited: isFavorited }
-    } finally {
-      setLoading(false)
+    const handleSync = (e) => {
+      setFavorites(e.detail ? e.detail.map(String) : getStoredFavorites())
     }
-  }
+    const handleStorage = () => setFavorites(getStoredFavorites())
 
-  return { toggleFavorite, loading, error }
-}
+    window.addEventListener('favorites-updated', handleSync)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('favorites-updated', handleSync)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
 
-// ---------------------------------------------------------------------------
-// useIsFavorited — convenience wrapper for a single product.
-// ---------------------------------------------------------------------------
+  const isFavorited = useCallback(
+    (gunId) => {
+      if (gunId == null) return false
+      return favorites.some((id) => String(id) === String(gunId))
+    },
+    [favorites]
+  )
 
-export function useIsFavorited(gunId) {
-  const { favorites, loading: fetchLoading, refetch } = useFavorites()
-  const { toggleFavorite: toggle, loading: toggleLoading } = useToggleFavorite()
+  const toggleFavorite = useCallback((gunId) => {
+    if (gunId == null) return
+    const strId = String(gunId)
+    const current = getStoredFavorites()
+    const exists = current.some((id) => String(id) === strId)
+    const updated = exists
+      ? current.filter((id) => String(id) !== strId)
+      : [...current, strId]
 
-  // Check both server-format (objects with .id) and local-format (plain ids)
-  const isFavorited = favorites.some((fav) => {
-    const favId = typeof fav === 'object' && fav !== null ? (fav.id ?? fav.product_id ?? fav.recipe_id) : fav
-    return String(favId) === String(gunId)
-  })
-
-  const toggleFavorite = async () => {
-    const result = await toggle(gunId)
-    if (result) await refetch()
-    return result
-  }
+    setFavorites(updated)
+    saveStoredFavorites(updated)
+  }, [])
 
   return {
+    favorites,
+    loading,
     isFavorited,
-    loading: fetchLoading || toggleLoading,
     toggleFavorite,
+    removeFavorite: removeFavoriteFromStorage,
+    pruneFavorites: pruneFavoritesAgainstValidIds,
+    refetch: () => setFavorites(getStoredFavorites()),
   }
 }
 
-export { getUserIdentifier }
+export default useFavorites

@@ -1,22 +1,11 @@
 // ---------------------------------------------------------------------------
 // draftStorage.js — auto-save / restore form drafts via localStorage.
-//
-// Drafts are keyed by a string id:
-//   'create'              → the Create form
-//   '<uuid>'              → the Edit form for a specific product
-//
-// Each draft is stored under  `gun_draft_<id>`  and its companion
-// timestamp under  `gun_draft_<id>_ts`.
 // ---------------------------------------------------------------------------
-
 const PREFIX = 'gun_draft_'
 const TS_SUFFIX = '_ts'
 
 /**
  * Persist a draft object.
- * @param {Object} draftData — arbitrary JSON-serializable form state
- * @param {string} draftId   — 'create' or a product UUID
- * @returns {boolean} true on success
  */
 export const saveDraft = (draftData, draftId = 'create') => {
   try {
@@ -32,7 +21,6 @@ export const saveDraft = (draftData, draftId = 'create') => {
 
 /**
  * Load a previously saved draft.
- * @returns {Object|null}
  */
 export const loadDraft = (draftId = 'create') => {
   try {
@@ -86,13 +74,13 @@ export const formatDraftTime = (timestamp) => {
   if (!timestamp) return ''
   const diff = Date.now() - new Date(timestamp).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'Just now'
-  if (mins < 60) return `${mins} min ago`
+  if (mins < 1) return 'Baru saja'
+  if (mins < 60) return `${mins} menit yang lalu`
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs} hr ago`
+  if (hrs < 24) return `${hrs} jam yang lalu`
   const days = Math.floor(hrs / 24)
-  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`
-  return new Date(timestamp).toLocaleDateString()
+  if (days < 7) return `${days} hari yang lalu`
+  return new Date(timestamp).toLocaleDateString('id-ID')
 }
 
 /**

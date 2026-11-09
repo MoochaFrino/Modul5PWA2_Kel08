@@ -1,36 +1,33 @@
 import { Heart } from 'lucide-react'
-import { useIsFavorited } from '../../hooks/useFavorites'
+import { useFavorites } from '../../hooks/useFavorites'
 
-/**
- * A toggleable heart button.  Works with both server-backed and
- * localStorage-only favourites.
- *
- * @param {Object}   props
- * @param {string}   props.gunId  — product UUID (or local id)
- * @param {Function} [props.onToggle] — optional callback after toggle
- */
-export default function FavoriteButton({ gunId, onToggle }) {
-  const { isFavorited, loading, toggleFavorite } = useIsFavorited(gunId)
+export default function FavoriteButton({ gunId, size = 16 }) {
+  const { isFavorited, toggleFavorite } = useFavorites()
+  const active = isFavorited(gunId)
 
-  const handleClick = async (e) => {
-    e.stopPropagation()          // don't bubble into card click
-    const result = await toggleFavorite()
-    if (result && onToggle) onToggle(result)
+  const handleClick = (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    toggleFavorite(gunId)
   }
 
   return (
     <button
       type="button"
-      className={`fav-btn${isFavorited ? ' fav-btn--active' : ''}`}
       onClick={handleClick}
-      disabled={loading}
-      aria-label={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-      title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+      className={`card-act-btn ${active ? 'fav-active' : ''}`}
+      title={active ? 'Hapus dari Favorit' : 'Tambah ke Favorit'}
+      style={{
+        borderColor: active ? '#ef4444' : undefined,
+        backgroundColor: active ? 'rgba(239, 68, 68, 0.15)' : undefined,
+        color: active ? '#ef4444' : undefined,
+        transition: 'transform 0.1s ease, background-color 0.15s ease',
+      }}
     >
       <Heart
-        size={18}
-        fill={isFavorited ? 'var(--brass)' : 'none'}
-        stroke={isFavorited ? 'var(--brass)' : 'var(--steel)'}
+        size={size}
+        fill={active ? '#ef4444' : 'none'}
+        stroke={active ? '#ef4444' : 'currentColor'}
       />
     </button>
   )
